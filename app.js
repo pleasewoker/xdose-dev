@@ -190,16 +190,46 @@ app.use((err, req, res, next) => {
   return fail(res, 'Internal server error', 500, null);
 });
 
+// // =========================
+// // Connect DB & Start server
+// // =========================
+// mongoose
+//   .connect(process.env.MONGODB_URI)
+//   .then(() => {
+//     console.log('MongoDB connected');
+//     app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+//   })
+//   .catch((err) => {
+//     console.error('Mongo connect error:', err);
+//     process.exit(1);
+//   });
 // =========================
-// Connect DB & Start server
+// Start server first (Render ต้องเห็น PORT)
 // =========================
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => {
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
+
+// =========================
+// Connect DB (retry ได้)
+// =========================
+async function connectWithRetry() {
+  try {
+    if (!process.env.MONGODB_URI) {
+      console.error('Missing MONGODB_URI in environment variables');
+      return;
+    }
+
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000,
+    });
+
     console.log('MongoDB connected');
-    app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
-  })
-  .catch((err) => {
-    console.error('Mongo connect error:', err);
-    process.exit(1);
-  });
+  } catch (err) {
+    console.error('Mongo connect error:', err.message);
+    // รอแล้ว retry ทุก 5 วิ
+    setTimeout(connectWithRetry, 5000);
+  }
+}
+
+connectWithRetry();
