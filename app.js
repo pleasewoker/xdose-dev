@@ -109,7 +109,7 @@ async function pingDbWithRetry() {
     await initDb();
   } catch (err) {
     console.error('MySQL init error:', err.message);
-    setTimeout(pingDbWithRetry, 5000);
+    // setTimeout(pingDbWithRetry, 5000);
   }
 }
 
