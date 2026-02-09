@@ -150,36 +150,81 @@ function createCrudRouter({ table, pk, fields, requiredOnCreate = [] }) {
 // =========================
 const organizationRouter = express.Router();
 
+// =========================
+// LIST
+// =========================
 organizationRouter.get('/', async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
-      `SELECT organization_id, email, name, picture, active_status, total_user, end_date, start_date, created_date, updated_date,code
+      `SELECT 
+        organization_id,
+        email,
+        name,
+        picture,
+        active_status,
+        total_user,
+        end_date,
+        start_date,
+        created_date,
+        updated_date,
+        code
        FROM m_organization
        ORDER BY organization_id DESC`
     );
+
     return ok(res, 'Get m_organization successful', rows);
   } catch (e) { next(e); }
 });
 
+// =========================
+// GET BY ID
+// =========================
 organizationRouter.get('/:id', async (req, res, next) => {
   try {
-    if (!isPositiveInt(req.params.id)) return fail(res, 'Invalid id format', 400);
+    if (!isPositiveInt(req.params.id)) {
+      return fail(res, 'Invalid id format', 400);
+    }
+
     const [rows] = await pool.execute(
-      `SELECT organization_id, email, name, picture, active_status, total_user, end_date, start_date, created_date, updated_date,code
+      `SELECT 
+        organization_id,
+        email,
+        name,
+        picture,
+        active_status,
+        total_user,
+        end_date,
+        start_date,
+        created_date,
+        updated_date,
+        code
        FROM m_organization
-       WHERE organization_id = ? LIMIT 1`,
+       WHERE organization_id = ?
+       LIMIT 1`,
       [req.params.id]
     );
+
     if (!rows.length) return fail(res, 'Not found', 404);
+
     return ok(res, 'Get m_organization successful', rows[0]);
   } catch (e) { next(e); }
 });
 
+// =========================
+// CREATE
+// =========================
 organizationRouter.post('/', async (req, res, next) => {
   try {
     const {
-      email, name, password, picture,
-      active_status, total_user, end_date, start_date
+      email,
+      name,
+      password,
+      picture,
+      active_status,
+      total_user,
+      end_date,
+      start_date,
+      code     // ✅ เพิ่มแล้ว
     } = req.body || {};
 
     if (!name) return fail(res, 'name is required', 400);
@@ -189,10 +234,13 @@ organizationRouter.post('/', async (req, res, next) => {
     const hash = await bcrypt.hash(password, SALT_ROUNDS);
 
     const [result] = await pool.execute(
-      `INSERT INTO m_organization (email, name, password, picture, active_status, total_user, end_date, start_date,code)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?,?)`,
+      `INSERT INTO m_organization
+       (email, name, password, picture, active_status, total_user, end_date, start_date, code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        email, name, hash,
+        email,
+        name,
+        hash,
         picture ?? null,
         active_status ?? 1,
         total_user ?? 0,
@@ -203,91 +251,179 @@ organizationRouter.post('/', async (req, res, next) => {
     );
 
     const [rows] = await pool.execute(
-      `SELECT organization_id, email, name, picture, active_status, total_user, end_date, start_date, created_date, updated_date,code
-       FROM m_organization WHERE organization_id = ? LIMIT 1`,
+      `SELECT 
+        organization_id,
+        email,
+        name,
+        picture,
+        active_status,
+        total_user,
+        end_date,
+        start_date,
+        created_date,
+        updated_date,
+        code
+       FROM m_organization
+       WHERE organization_id = ?
+       LIMIT 1`,
       [result.insertId]
     );
 
     return ok(res, 'Create m_organization successful', rows[0], 201);
+
   } catch (e) {
-    if (e.code === 'ER_DUP_ENTRY') return fail(res, 'Organization email already exists', 409);
+    if (e.code === 'ER_DUP_ENTRY') {
+      return fail(res, 'Organization email already exists', 409);
+    }
     next(e);
   }
 });
 
+// =========================
+// PATCH (Partial Update)
+// =========================
 organizationRouter.patch('/:id', async (req, res, next) => {
   try {
-    if (!isPositiveInt(req.params.id)) return fail(res, 'Invalid id format', 400);
+    if (!isPositiveInt(req.params.id)) {
+      return fail(res, 'Invalid id format', 400);
+    }
 
     const fields = [];
     const values = [];
 
-    const allow = ['email','name','password','picture','active_status','total_user','end_date','start_date'];
+    const allow = [
+      'email',
+      'name',
+      'password',
+      'picture',
+      'active_status',
+      'total_user',
+      'end_date',
+      'start_date',
+      'code'   // ✅ เพิ่มแล้ว
+    ];
+
     for (const k of allow) {
       if (k in (req.body || {})) {
+
         if (k === 'password') {
           const hash = await bcrypt.hash(req.body.password, SALT_ROUNDS);
-          fields.push('password = ?'); values.push(hash);
+          fields.push('password = ?');
+          values.push(hash);
+
         } else {
-          fields.push(`${k} = ?`); values.push(req.body[k]);
+          fields.push(`${k} = ?`);
+          values.push(req.body[k]);
         }
       }
     }
 
-    if (!fields.length) return fail(res, 'No updatable fields', 400);
+    if (!fields.length) {
+      return fail(res, 'No updatable fields', 400);
+    }
 
     const [exist] = await pool.execute(
-      `SELECT organization_id FROM m_organization WHERE organization_id = ? LIMIT 1`,
+      `SELECT organization_id
+       FROM m_organization
+       WHERE organization_id = ?
+       LIMIT 1`,
       [req.params.id]
     );
+
     if (!exist.length) return fail(res, 'Not found', 404);
 
     values.push(req.params.id);
+
     await pool.execute(
-      `UPDATE m_organization SET ${fields.join(', ')} WHERE organization_id = ?`,
+      `UPDATE m_organization
+       SET ${fields.join(', ')}
+       WHERE organization_id = ?`,
       values
     );
 
     const [rows] = await pool.execute(
-      `SELECT organization_id, email, name, picture, active_status, total_user, end_date, start_date, created_date, updated_date,code
-       FROM m_organization WHERE organization_id = ? LIMIT 1`,
+      `SELECT 
+        organization_id,
+        email,
+        name,
+        picture,
+        active_status,
+        total_user,
+        end_date,
+        start_date,
+        created_date,
+        updated_date,
+        code
+       FROM m_organization
+       WHERE organization_id = ?
+       LIMIT 1`,
       [req.params.id]
     );
 
     return ok(res, 'Update m_organization (PATCH) successful', rows[0]);
+
   } catch (e) { next(e); }
 });
 
+// =========================
+// PUT (Replace)
+// =========================
 organizationRouter.put('/:id', async (req, res, next) => {
   try {
-    if (!isPositiveInt(req.params.id)) return fail(res, 'Invalid id format', 400);
+    if (!isPositiveInt(req.params.id)) {
+      return fail(res, 'Invalid id format', 400);
+    }
 
     const {
-      email, name, password, picture,
-      active_status, total_user, end_date, start_date
+      email,
+      name,
+      password,
+      picture,
+      active_status,
+      total_user,
+      end_date,
+      start_date,
+      code    // ✅ เพิ่มแล้ว
     } = req.body || {};
 
-    // PUT = replace ต้องส่งครบ (อย่างน้อย email,name,password)
     const missing = [];
     if (!email) missing.push('email');
     if (!name) missing.push('name');
     if (!password) missing.push('password');
-    if (missing.length) return fail(res, `PUT requires: ${missing.join(', ')}`, 400);
+
+    if (missing.length) {
+      return fail(res, `PUT requires: ${missing.join(', ')}`, 400);
+    }
 
     const [exist] = await pool.execute(
-      `SELECT organization_id FROM m_organization WHERE organization_id = ? LIMIT 1`,
+      `SELECT organization_id
+       FROM m_organization
+       WHERE organization_id = ?
+       LIMIT 1`,
       [req.params.id]
     );
+
     if (!exist.length) return fail(res, 'Not found', 404);
 
     const hash = await bcrypt.hash(password, SALT_ROUNDS);
 
     await pool.execute(
       `UPDATE m_organization
-       SET email = ?, name = ?, password = ?, picture = ?, active_status = ?, total_user = ?, end_date = ?, start_date = ?, code = ?
+       SET
+         email = ?,
+         name = ?,
+         password = ?,
+         picture = ?,
+         active_status = ?,
+         total_user = ?,
+         end_date = ?,
+         start_date = ?,
+         code = ?
        WHERE organization_id = ?`,
       [
-        email, name, hash,
+        email,
+        name,
+        hash,
         picture ?? null,
         active_status ?? 1,
         total_user ?? 0,
@@ -299,32 +435,61 @@ organizationRouter.put('/:id', async (req, res, next) => {
     );
 
     const [rows] = await pool.execute(
-      `SELECT organization_id, email, name, picture, active_status, total_user, end_date, start_date, created_date, updated_date,code
-       FROM m_organization WHERE organization_id = ? LIMIT 1`,
+      `SELECT 
+        organization_id,
+        email,
+        name,
+        picture,
+        active_status,
+        total_user,
+        end_date,
+        start_date,
+        created_date,
+        updated_date,
+        code
+       FROM m_organization
+       WHERE organization_id = ?
+       LIMIT 1`,
       [req.params.id]
     );
 
     return ok(res, 'Replace m_organization (PUT) successful', rows[0]);
+
   } catch (e) { next(e); }
 });
 
+// =========================
+// DELETE
+// =========================
 organizationRouter.delete('/:id', async (req, res, next) => {
   try {
-    if (!isPositiveInt(req.params.id)) return fail(res, 'Invalid id format', 400);
+    if (!isPositiveInt(req.params.id)) {
+      return fail(res, 'Invalid id format', 400);
+    }
 
     const [rows] = await pool.execute(
-      `SELECT organization_id, email, name
-       FROM m_organization WHERE organization_id = ? LIMIT 1`,
+      `SELECT organization_id, email, name, code
+       FROM m_organization
+       WHERE organization_id = ?
+       LIMIT 1`,
       [req.params.id]
     );
+
     if (!rows.length) return fail(res, 'Not found', 404);
 
-    await pool.execute(`DELETE FROM m_organization WHERE organization_id = ?`, [req.params.id]);
+    await pool.execute(
+      `DELETE FROM m_organization
+       WHERE organization_id = ?`,
+      [req.params.id]
+    );
+
     return ok(res, 'Delete m_organization successful', rows[0]);
+
   } catch (e) { next(e); }
 });
 
 app.use('/organizations', organizationRouter);
+
 
 // =========================
 // Custom CRUD: m_user (hash password + hide password)
