@@ -21,6 +21,19 @@ function isPositiveInt(val) {
   return Number.isInteger(n) && n > 0;
 }
 
+function generateOrgCode(length = 6) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+
+  for (let i = 0; i < length; i++) {
+    const idx = crypto.randomInt(0, chars.length);
+    result += chars[idx];
+  }
+
+  return result;
+}
+
+
 const SALT_ROUNDS = 10;
 
 // =========================
@@ -224,7 +237,7 @@ organizationRouter.post('/', async (req, res, next) => {
       total_user,
       end_date,
       start_date,
-      code     // ✅ เพิ่มแล้ว
+      code
     } = req.body || {};
 
     if (!name) return fail(res, 'name is required', 400);
@@ -232,6 +245,28 @@ organizationRouter.post('/', async (req, res, next) => {
     if (!password) return fail(res, 'password is required', 400);
 
     const hash = await bcrypt.hash(password, SALT_ROUNDS);
+
+    // ถ้าไม่ส่ง code → generate auto
+    let orgCode = code;
+
+    if (!orgCode) {
+      let isDuplicate = true;
+
+      // loop กันชน unique
+      while (isDuplicate) {
+        orgCode = generateOrgCode(6);
+
+        const [chk] = await pool.execute(
+          `SELECT organization_id
+           FROM m_organization
+           WHERE code = ?
+           LIMIT 1`,
+          [orgCode]
+        );
+
+        isDuplicate = chk.length > 0;
+      }
+    }
 
     const [result] = await pool.execute(
       `INSERT INTO m_organization
@@ -246,7 +281,7 @@ organizationRouter.post('/', async (req, res, next) => {
         total_user ?? 0,
         end_date ?? null,
         start_date ?? null,
-        code ?? null
+        orgCode
       ]
     );
 
@@ -1152,6 +1187,131 @@ app.post('/auth/logout', async (req, res, next) => {
     return ok(res, 'Logout successful', null);
   } catch (e) { next(e); }
 });
+
+// =========================
+// RESET PASSWORD (USER) - DEBUG/ADMIN TOOL
+// =========================
+app.post('/debug/user/reset-password', async (req, res, next) => {
+  try {
+    const { id, new_password, secret } = req.body || {};
+
+    // require id
+    if (!isPositiveInt(id)) {
+      return fail(res, 'id is required and must be positive integer', 400);
+    }
+
+    // require secret
+    if (!secret) {
+      return fail(res, 'ACCESS_TOKEN_SECRET is required', 400);
+    }
+    if (secret !== process.env.ACCESS_TOKEN_SECRET) {
+      return fail(res, 'Invalid secret', 401);
+    }
+
+    // หา user ก่อน
+    const [rows] = await pool.execute(
+      `SELECT user_id, email
+       FROM m_user
+       WHERE user_id = ?
+       LIMIT 1`,
+      [id]
+    );
+
+    if (!rows.length) {
+      return fail(res, 'User not found', 404);
+    }
+
+    const user = rows[0];
+
+    // ถ้าไม่ส่ง new_password -> สุ่มให้ (อ่านง่าย + ใช้งานได้ทันที)
+    const plainPassword =
+      (typeof new_password === 'string' && new_password.trim().length > 0)
+        ? new_password
+        : crypto.randomBytes(6).toString('base64url'); // ~8 chars
+
+    // hash แล้ว update
+    const hash = await bcrypt.hash(plainPassword, SALT_ROUNDS);
+
+    await pool.execute(
+      `UPDATE m_user
+       SET password = ?, updated_date = NOW()
+       WHERE user_id = ?`,
+      [hash, id]
+    );
+
+    return ok(res, 'Reset password successful', {
+      user_id: user.user_id,
+      email: user.email,
+      plain_password: plainPassword,   // ✅ password ใหม่ (เอาไป debug / แจ้ง user)
+      password_hash: hash             // ✅ hash ใหม่ (ไว้ตรวจสอบ)
+    });
+
+  } catch (e) { next(e); }
+});
+
+// =========================
+// RESET PASSWORD (ORGANIZATION) - DEBUG/ADMIN TOOL
+// =========================
+app.post('/debug/organization/reset-password', async (req, res, next) => {
+  try {
+    const { id, new_password, secret } = req.body || {};
+
+    // require id
+    if (!isPositiveInt(id)) {
+      return fail(res, 'id is required and must be positive integer', 400);
+    }
+
+    // require secret
+    if (!secret) {
+      return fail(res, 'ACCESS_TOKEN_SECRET is required', 400);
+    }
+    if (secret !== process.env.ACCESS_TOKEN_SECRET) {
+      return fail(res, 'Invalid secret', 401);
+    }
+
+    // หา organization ก่อน
+    const [rows] = await pool.execute(
+      `SELECT organization_id, email, name
+       FROM m_organization
+       WHERE organization_id = ?
+       LIMIT 1`,
+      [id]
+    );
+
+    if (!rows.length) {
+      return fail(res, 'Organization not found', 404);
+    }
+
+    const org = rows[0];
+
+    // ถ้าไม่ส่ง new_password -> สุ่มให้
+    const plainPassword =
+      (typeof new_password === 'string' && new_password.trim().length > 0)
+        ? new_password
+        : crypto.randomBytes(6).toString('base64url'); // ~8 chars
+
+    // hash แล้ว update
+    const hash = await bcrypt.hash(plainPassword, SALT_ROUNDS);
+
+    await pool.execute(
+      `UPDATE m_organization
+       SET password = ?, updated_date = NOW()
+       WHERE organization_id = ?`,
+      [hash, id]
+    );
+
+    return ok(res, 'Reset organization password successful', {
+      organization_id: org.organization_id,
+      email: org.email,
+      name: org.name,
+      plain_password: plainPassword,
+      password_hash: hash
+    });
+
+  } catch (e) { next(e); }
+});
+
+
 
 // Health
 app.get('/', (req, res) => ok(res, 'API is running', { uptime: process.uptime() }));
